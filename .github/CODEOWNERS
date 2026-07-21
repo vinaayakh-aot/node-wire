@@ -20,26 +20,29 @@
 /CHANGELOG.md @AOT-Technologies/nw-codeowners
 
 # Public documentation and examples.
-/README.md @AOT-Technologies/nw-codeowners
-/docs/ @AOT-Technologies/nw-codeowners
-/sample.env @AOT-Technologies/nw-codeowners
+/README.md @AOT-Technologies/nw-codeowners @AOT-Technologies/nm-maintainer
+/docs/ @AOT-Technologies/nw-codeowners @AOT-Technologies/nm-maintainer
+/mkdocs.yml @AOT-Technologies/nw-codeowners @AOT-Technologies/nm-maintainer
+/sample.env @AOT-Technologies/nw-codeowners @AOT-Technologies/nm-maintainer
 
-# Runtime and connector packages.
-/packages/runtime/ @AOT-Technologies/nw-codeowners
-/packages/connectors/ @AOT-Technologies/nw-codeowners
+# Application source, runtime, and connector packages.
+/src/ @AOT-Technologies/nw-codeowners @AOT-Technologies/nm-maintainer
+/packages/runtime/ @AOT-Technologies/nw-codeowners @AOT-Technologies/nm-maintainer
+/packages/connectors/ @AOT-Technologies/nw-codeowners @AOT-Technologies/nm-maintainer
+/playground/ @AOT-Technologies/nw-codeowners @AOT-Technologies/nm-maintainer
 
 # Tests, fixtures, and local validation helpers.
-/tests/ @AOT-Technologies/nw-codeowners
-/scripts/ @AOT-Technologies/nw-codeowners
+/tests/ @AOT-Technologies/nw-codeowners @AOT-Technologies/nm-maintainer
+/scripts/ @AOT-Technologies/nw-codeowners @AOT-Technologies/nm-maintainer
 
 # Build, packaging, dependency, and compliance configuration.
-/pyproject.toml @AOT-Technologies/nw-codeowners
-/uv.lock @AOT-Technologies/nw-codeowners
+/pyproject.toml @AOT-Technologies/nw-codeowners @AOT-Technologies/nm-maintainer
+/uv.lock @AOT-Technologies/nw-codeowners @AOT-Technologies/nm-maintainer
 /REUSE.toml @AOT-Technologies/nw-codeowners
 /.gitleaks.toml @AOT-Technologies/nw-codeowners
-/DEPENDENCIES.md @AOT-Technologies/nw-codeowners
+/DEPENDENCIES.md @AOT-Technologies/nw-codeowners @AOT-Technologies/nm-maintainer
 
 # GitHub project automation and ownership rules.
-/.github/ @AOT-Technologies/nw-codeowners
-/.github/CODEOWNERS @AOT-Technologies/nw-codeowners
-/.github/workflows/ @AOT-Technologies/nw-codeowners
+/.github/ @AOT-Technologies/nw-codeowners @AOT-Technologies/nm-maintainer
+/.github/CODEOWNERS @AOT-Technologies/nw-codeowners @AOT-Technologies/nm-maintainer
+/.github/workflows/ @AOT-Technologies/nw-codeowners @AOT-Technologies/nm-maintainer
