@@ -152,14 +152,15 @@ package_paths = [
 ]
 ```
 
-#### `.github/workflows/security-pr.yml` — matrix `package_path`
+#### `.github/workflows/security-pr.yml` — package allowlist
 
-Add a new YAML list item under `jobs.<job>.strategy.matrix.package_path`:
+Add the new path in **both** places (the `decide` job `ALL` list and the
+scan job `strategy.matrix.package_path`):
 
 ```yaml
 # .github/workflows/security-pr.yml
-matrix:
-  package_path:
+# 1) jobs.decide → ALL = [ ..., "packages/connectors/<name>" ]
+# 2) jobs.vulnerability-scan.strategy.matrix.package_path:
     - packages/runtime
     - packages/connectors/http_generic
     # ... existing entries ...

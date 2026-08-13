@@ -12,10 +12,12 @@ on:
     paths:
       - "Dockerfile"
       - "docker/**"
+      - ".github/workflows/docker-policy.yml"
   pull_request:
     paths:
       - "Dockerfile"
       - "docker/**"
+      - ".github/workflows/docker-policy.yml"
 
 permissions:
   contents: read

@@ -41,7 +41,8 @@ pre-commit install
 
 ## Quality Checks
 
-All of the following run in CI on pull requests against `main`. Run them
+All of the following run in CI on pull requests against `main` (jobs skip
+the expensive work when the PR does not touch relevant paths). Run them
 locally before opening a PR:
 
 - **Lint:** `uv run ruff check .`

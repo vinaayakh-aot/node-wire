@@ -1,4 +1,3 @@
-
 ##
 ## SPDX-FileCopyrightText: 2026 AOT Technologies
 ## SPDX-License-Identifier: Apache-2.0
@@ -15,15 +14,36 @@ on:
 
 permissions:
   contents: read
+  pull-requests: read
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  changes:
+    name: Detect test-relevant changes
+    runs-on: ubuntu-latest
+    outputs:
+      run: ${{ steps.gate.outputs.run }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Decide whether tests are needed
+        id: gate
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT_NAME: ${{ github.event_name }}
+          REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          bash .github/scripts/ci-pr-relevant.sh \
+            '\.py$|\.pyi$|(^|/)src/|(^|/)tests/|(^|/)packages/|(^|/)nw-mcp-builder/|(^|/)playground/|^pyproject\.toml$|^uv\.lock$|\.github/workflows/pytest\.yml|\.github/scripts/ci-pr-relevant\.sh'
+
   test:
     name: Run pytest (${{ matrix.os }}, Python ${{ matrix.python-version }})
+    needs: changes
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
 
     strategy:
       fail-fast: false
@@ -32,15 +52,22 @@ jobs:
         python-version: ["3.11", "3.12"]
 
     steps:
+      - name: Skip pytest (no relevant changes)
+        if: needs.changes.outputs.run != 'true'
+        run: echo "No test-relevant files changed on this PR; skipping pytest."
+
       - name: Checkout repository
+        if: needs.changes.outputs.run == 'true'
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
       - name: Set up Python ${{ matrix.python-version }}
+        if: needs.changes.outputs.run == 'true'
         uses: actions/setup-python@0b93645e9fea7318ecaed2b359559ac225c90a2b # v5.3.0
         with:
           python-version: ${{ matrix.python-version }}
 
       - name: Install uv
+        if: needs.changes.outputs.run == 'true'
         uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5.4.2
         with:
           enable-cache: true
@@ -49,54 +76,76 @@ jobs:
             uv.lock
 
       - name: Install dependencies
+        if: needs.changes.outputs.run == 'true'
         run: uv sync --frozen --all-extras --dev
 
       - name: Run pytest
-        run: uv run pytest --cov --cov-report=html --cov-report=term-missing
+        if: needs.changes.outputs.run == 'true'
+        run: >
+          uv run pytest -o "addopts="
+          --cov=src --cov-report=term-missing --cov-report=xml:coverage.xml
+          --ignore=tests/playground
+          ${{ github.event_name != 'pull_request' && matrix.os == 'ubuntu-latest' && matrix.python-version == '3.12' && '--cov-report=html:htmlcov' || '' }}
+
+      - name: Upload coverage XML for patch coverage
+        if: needs.changes.outputs.run == 'true' && matrix.os == 'ubuntu-latest' && matrix.python-version == '3.11'
+        uses: actions/upload-artifact@b4b15b8c7c6ac21ea08fcf65892d2ee8f75cf882 # v4.4.3
+        with:
+          name: coverage-xml
+          path: coverage.xml
+          if-no-files-found: error
 
       - name: Upload HTML coverage report
-        if: always()
+        if: needs.changes.outputs.run == 'true' && github.event_name != 'pull_request' && matrix.os == 'ubuntu-latest' && matrix.python-version == '3.12'
         uses: actions/upload-artifact@b4b15b8c7c6ac21ea08fcf65892d2ee8f75cf882 # v4.4.3
         with:
           name: coverage-html-${{ matrix.os }}-py${{ matrix.python-version }}
           path: htmlcov/
           if-no-files-found: ignore
 
-
   patch-coverage:
     name: Patch coverage (changed lines ≥ 80%)
+    needs: [changes, test]
     runs-on: ubuntu-latest
-    if: github.event_name == 'pull_request'
+    timeout-minutes: 10
+    if: github.event_name == 'pull_request' && needs.changes.outputs.run == 'true'
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
-          # Full history so diff-cover can diff against the base branch.
           fetch-depth: 0
 
-      - name: Set up Python 3.11
-        uses: actions/setup-python@0b93645e9fea7318ecaed2b359559ac225c90a2b # v5.3.0
+      - name: Download coverage XML
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
-          python-version: "3.11"
+          name: coverage-xml
 
       - name: Install uv
         uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5.4.2
         with:
           enable-cache: true
-          cache-dependency-glob: |
-            pyproject.toml
-            uv.lock
+          cache-dependency-glob: uv.lock
 
-      - name: Install dependencies
-        run: uv sync --frozen --all-extras --dev
+      - name: Resolve diff-cover version from lockfile
+        id: diff-cover-ver
+        run: |
+          python3 - <<'PY'
+          import os
+          import pathlib
+          import tomllib
 
-      - name: Run pytest with coverage
-        run: uv run pytest --cov --cov-report=xml
+          data = tomllib.loads(pathlib.Path("uv.lock").read_text(encoding="utf-8"))
+          version = next(p["version"] for p in data["package"] if p["name"] == "diff-cover")
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as out:
+              out.write(f"version={version}\n")
+          print(f"diff-cover=={version}")
+          PY
 
       - name: Enforce 80% coverage on changed lines
         run: >
-          uv run diff-cover coverage.xml
+          uvx --from "diff-cover==${{ steps.diff-cover-ver.outputs.version }}"
+          diff-cover coverage.xml
           --compare-branch origin/${{ github.base_ref }}
           --fail-under 80
           --show-uncovered

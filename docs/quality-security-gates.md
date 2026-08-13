@@ -12,9 +12,16 @@ This repository enforces security gates at both PR time and publish time.
 
 ## CI quality gates
 
+Analysis jobs always **report a status** on pull requests (so required checks are
+not left pending) but **skip the expensive work** when the PR did not touch
+relevant paths. Pushes to `main`, schedules, and `workflow_dispatch` always run
+in full. Path detection lives in `.github/scripts/ci-pr-relevant.sh`.
+
 Workflow: `.github/workflows/quality-gates.yml`
 
-Runs on every pull request and on pushes to `main`.
+Bandit SAST on pull requests that change `src/` (or Bandit config) and on every
+push to `main`. Installs Bandit from the lockfile via `uvx` (no full project
+sync).
 
 Required jobs:
 
@@ -22,22 +29,31 @@ Required jobs:
 
 Workflow: `.github/workflows/codeql.yml`
 
-Runs GitHub CodeQL static analysis for Python on pull requests, pushes to `main`, and weekly (Mondays). No repository secrets are required.
+GitHub CodeQL for Python. Pull requests use the `security-extended` query suite
+and skip when no Python/source paths changed. Pushes to `main` and the weekly
+Monday schedule use `security-and-quality`. Extraction is limited to first-party
+code (see `.github/codeql/codeql-config.yml`); tests, generated gRPC stubs, and
+MCP output are excluded. No repository secrets are required.
 
 Workflow: `.github/workflows/pytest.yml`
 
-Runs the full test suite on **Linux, macOS, and Windows** (Python 3.11 and 3.12
-matrix) with coverage on every pull request and push to `main`.
+Full test suite on **Linux, macOS, and Windows** (Python 3.11 and 3.12) when the
+PR touches Python/source/tests (always on push to `main`). Patch coverage reuses
+the Ubuntu 3.11 `coverage.xml` artifact instead of running pytest a second time.
 Playground integration tests remain manual (`workflow_dispatch`) on Ubuntu only.
 
-Workflow: `.github/workflows/lint.yml` also runs `lockfile-check` (`uv lock --check`) to fail PRs when `pyproject.toml` changes without an updated `uv.lock`.
+Workflow: `.github/workflows/lint.yml` runs `lockfile-check` (`uv lock --check`)
+when `pyproject.toml` / `uv.lock` change, Ruff via `uvx` when Python files
+change, and Mypy when `src/` changes. REUSE lint always runs (any new file can
+miss an SPDX header).
 
 Workflow: `.github/workflows/secret-scan.yml`
 
 Runs [Gitleaks](https://github.com/gitleaks/gitleaks) on pull requests, pushes to
-`main`, weekly (Mondays), and on manual dispatch. The workflow checks
-out **full git history** (`fetch-depth: 0`) so secrets in past commits are
-scanned, not only the working tree.
+`main`, weekly (Mondays), and on manual dispatch. Pull requests scan only the PR
+commit range; pushes to `main` scan the pushed commits; the weekly schedule
+walks **full git history** (`fetch-depth: 0`) so newly disclosed patterns are
+still caught in old commits.
 
 Required checks to add in branch protection:
 
@@ -69,6 +85,7 @@ Configure branch protection so pull requests cannot merge unless all required ch
 - Release-time scanning remains in `.github/workflows/publish.yml` as defense in depth.
 - The PR/push gate (`security-pr.yml`) runs `pip-audit` with no `--fail-on` threshold, so it **blocks on any vulnerability**. The release workflow (`publish.yml`) uses `pip-audit --fail-on HIGH` as defense in depth.
 - Scheduled scans catch newly disclosed CVEs even when code does not change.
+- On pull requests, only packages whose metadata/lockfile changed are installed and audited (`src/`-only changes skip `pip-audit`). Unchanged matrix cells still report success so required checks are not left pending. Lockfile, root `pyproject.toml`, `packages/runtime/`, or this workflow → scan all packages. Daily cron and pushes to `main` that touch those paths scan all.
 
 **Monorepo install note:** Connector packages under `packages/connectors/*` declare `node-wire-runtime>=1.0.0` as a normal PyPI dependency name. The security workflow installs `packages/runtime` from the checkout **together with** each matrix package (`pip install packages/runtime "<matrix path>"`) so `pip` can resolve `node-wire-runtime` without requiring a published wheel on PyPI. Locally, mirror that when auditing a single connector: `pip install packages/runtime packages/connectors/<name>`.
 
@@ -79,7 +96,10 @@ Workflow: `.github/workflows/secret-scan.yml` (Gitleaks).
 Policy:
 
 - Scan on every PR and push to `main`, plus a weekly scheduled run.
-- Full repository history is included (`fetch-depth: 0`).
+- Pull requests and pushes scan the event's commit range only. Full repository
+  history (`fetch-depth: 0` + no `--log-opts`) runs on the weekly schedule and
+  on manual dispatch, so newly disclosed patterns are still applied to old
+  commits.
 - Findings fail the workflow; remediate by rotating exposed credentials and
   removing secrets from the codebase (never commit live secrets).
 
@@ -92,7 +112,7 @@ on macOS), then from the repository root:
 # Working tree (staged + unstaged changes vs HEAD)
 gitleaks detect --source . --redact --verbose
 
-# Full git history (matches CI intent)
+# Full git history (matches weekly CI / workflow_dispatch)
 gitleaks detect --source . --redact --verbose --log-opts="--all"
 ```
 
@@ -173,9 +193,9 @@ CycloneDX SBOM (`sbom.json`) is generated by:
 
 ## Acceptance criteria mapping
 
-- Security scan runs on every PR: enforced by `quality-gates.yml` (Bandit) and `codeql.yml` (CodeQL).
+- Security scan runs on every PR: enforced by `quality-gates.yml` (Bandit) and `codeql.yml` (CodeQL). Jobs skip the scan (and still pass) when the PR has no relevant path changes.
 - Builds fail on high-severity Bandit findings: Bandit gate in CI.
-- Static analysis visible in GitHub Security tab: CodeQL upload from CI.
-- Tests run on every PR: enforced by `pytest.yml` (Linux/macOS/Windows × Python 3.11/3.12).
+- Static analysis visible in GitHub Security tab: CodeQL upload from CI (PR, `main`, weekly).
+- Tests run on every PR that touches Python/source/tests: enforced by `pytest.yml` (Linux/macOS/Windows × Python 3.11/3.12).
 - Developers run checks locally: documented commands and pre-commit (Bandit).
 - Config version-controlled: `pyproject.toml`, `.pre-commit-config.yaml`, workflow files.

@@ -14,19 +14,55 @@ on:
 
 permissions:
   contents: read
+  pull-requests: read
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  lockfile-check:
-    name: Lockfile freshness
+  changes:
+    name: Detect lint-relevant changes
     runs-on: ubuntu-latest
+    outputs:
+      lockfile: ${{ steps.gate.outputs.lockfile }}
+      ruff: ${{ steps.gate.outputs.ruff }}
+      mypy: ${{ steps.gate.outputs.mypy }}
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Decide which linters to run
+        id: gate
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT_NAME: ${{ github.event_name }}
+          REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          bash .github/scripts/ci-pr-relevant.sh \
+            '^pyproject\.toml$|^uv\.lock$|\.github/workflows/lint\.yml|\.github/scripts/ci-pr-relevant\.sh' \
+            lockfile
+          bash .github/scripts/ci-pr-relevant.sh \
+            '\.py$|\.pyi$|^pyproject\.toml$|\.github/workflows/lint\.yml|\.github/scripts/ci-pr-relevant\.sh' \
+            ruff
+          bash .github/scripts/ci-pr-relevant.sh \
+            '\.py$|\.pyi$|(^|/)src/|^pyproject\.toml$|^uv\.lock$|\.github/workflows/lint\.yml|\.github/scripts/ci-pr-relevant\.sh' \
+            mypy
+
+  lockfile-check:
+    name: Lockfile freshness
+    needs: changes
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Skip lockfile check (no relevant changes)
+        if: needs.changes.outputs.lockfile != 'true'
+        run: echo "pyproject.toml / uv.lock unchanged; skipping lockfile check."
+
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        if: needs.changes.outputs.lockfile == 'true'
 
       - name: Install uv
+        if: needs.changes.outputs.lockfile == 'true'
         uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5.4.2
         with:
           enable-cache: true
@@ -35,74 +71,106 @@ jobs:
             uv.lock
 
       - name: Verify uv.lock matches pyproject.toml
+        if: needs.changes.outputs.lockfile == 'true'
         run: uv lock --check
 
   ruff:
     name: Ruff Linters
+    needs: changes
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Skip Ruff (no relevant changes)
+        if: needs.changes.outputs.ruff != 'true'
+        run: echo "No Python/Ruff-config changes on this PR; skipping Ruff."
 
-      - name: Set up Python
-        uses: actions/setup-python@0b93645e9fea7318ecaed2b359559ac225c90a2b # v5.3.0
-        with:
-          python-version: "3.12"
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        if: needs.changes.outputs.ruff == 'true'
 
       - name: Install uv
+        if: needs.changes.outputs.ruff == 'true'
         uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5.4.2
         with:
           enable-cache: true
-          cache-dependency-glob: |
-            pyproject.toml
-            uv.lock
+          cache-dependency-glob: uv.lock
 
-      - name: Install dependencies
-        run: uv sync --frozen --all-extras --dev
+      - name: Resolve Ruff version from lockfile
+        if: needs.changes.outputs.ruff == 'true'
+        id: ruff-ver
+        run: |
+          python3 - <<'PY'
+          import os
+          import pathlib
+          import tomllib
+
+          data = tomllib.loads(pathlib.Path("uv.lock").read_text(encoding="utf-8"))
+          version = next(p["version"] for p in data["package"] if p["name"] == "ruff")
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as out:
+              out.write(f"version={version}\n")
+          print(f"ruff=={version}")
+          PY
 
       - name: Run Ruff (Linting)
+        if: needs.changes.outputs.ruff == 'true'
         # --output-format=github automatically creates inline annotations on your PR code!
-        run: uv run ruff check --output-format=github .
+        run: uvx "ruff==${{ steps.ruff-ver.outputs.version }}" check --output-format=github .
 
       - name: Run Ruff (Formatting Check)
-        run: uv run ruff format --check .
+        if: needs.changes.outputs.ruff == 'true'
+        run: uvx "ruff==${{ steps.ruff-ver.outputs.version }}" format --check .
 
   reuse:
     name: REUSE compliance
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
-
-      - name: Set up Python
-        uses: actions/setup-python@0b93645e9fea7318ecaed2b359559ac225c90a2b # v5.3.0
-        with:
-          python-version: "3.12"
 
       - name: Install uv
         uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5.4.2
         with:
           enable-cache: true
-          cache-dependency-glob: |
-            pyproject.toml
-            uv.lock
+          cache-dependency-glob: uv.lock
 
-      - name: Install dependencies
-        run: uv sync --frozen --all-extras --dev
+      - name: Resolve REUSE version from lockfile
+        id: reuse-ver
+        run: |
+          python3 - <<'PY'
+          import os
+          import pathlib
+          import tomllib
+
+          data = tomllib.loads(pathlib.Path("uv.lock").read_text(encoding="utf-8"))
+          version = next(p["version"] for p in data["package"] if p["name"] == "reuse")
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as out:
+              out.write(f"version={version}\n")
+          print(f"reuse=={version}")
+          PY
 
       - name: Run REUSE lint
-        run: uv run reuse lint
+        run: uvx "reuse==${{ steps.reuse-ver.outputs.version }}" lint
 
   mypy:
     name: Mypy Type Check
+    needs: changes
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
+      - name: Skip Mypy (no relevant changes)
+        if: needs.changes.outputs.mypy != 'true'
+        run: echo "No Python/type-config changes on this PR; skipping Mypy."
+
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        if: needs.changes.outputs.mypy == 'true'
 
       - name: Set up Python
+        if: needs.changes.outputs.mypy == 'true'
         uses: actions/setup-python@0b93645e9fea7318ecaed2b359559ac225c90a2b # v5.3.0
         with:
           python-version: "3.12"
 
       - name: Install uv
+        if: needs.changes.outputs.mypy == 'true'
         uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5.4.2
         with:
           enable-cache: true
@@ -111,7 +179,9 @@ jobs:
             uv.lock
 
       - name: Install dependencies
+        if: needs.changes.outputs.mypy == 'true'
         run: uv sync --frozen --all-extras --dev
 
       - name: Run Mypy (Type checking)
+        if: needs.changes.outputs.mypy == 'true'
         run: uv run mypy

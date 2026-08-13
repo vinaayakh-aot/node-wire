@@ -1,0 +1,10 @@
+{
+  "summary": {
+    "id": "pet_store",
+    "spec_source": "https://petstore.swagger.io/v2/swagger.json",
+    "spec_version": null,
+    "generator_version": "0.1.0",
+    "spec_content_hash": null,
+    "error": "OpenAPI validation/deref failed: Cannot build an absolute file URL from a fragment without a reference with path!"
+  }
+}

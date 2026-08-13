@@ -1,0 +1,22 @@
+##
+## SPDX-FileCopyrightText: 2026 AOT Technologies
+## SPDX-License-Identifier: Apache-2.0
+##
+# CodeQL extraction scope. Tests, generated stubs, fixtures, and MCP output
+# are excluded so analysis stays on first-party runtime/connector/tooling code.
+name: Node Wire Python
+
+paths:
+  - src
+  - packages
+  - nw-mcp-builder
+  - scripts
+
+paths-ignore:
+  - "**/*_pb2.py"
+  - "**/*_pb2_grpc.py"
+  - "**/tests/**"
+  - "**/fixtures/**"
+  - "nw-mcp-builder/out/**"
+  - "playground/**"
+  - "**/*.promoting/**"

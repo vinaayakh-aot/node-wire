@@ -8,7 +8,7 @@ SPDX-License-Identifier: Apache-2.0
 
 This project uses **Ruff** for linting and formatting, **Mypy** for static type checking, **Bandit** for SAST, **pip-audit** for dependency vulnerability checks, and **REUSE** for open-source licensing compliance.
 
-Linting and type checks run automatically in CI on pull requests against the `main` branch via `.github/workflows/lint.yml`. Security and package compliance checks are additionally enforced through `.github/workflows/quality-gates.yml` and `.github/workflows/security-pr.yml`.
+Linting and type checks run automatically in CI on pull requests against the `main` branch via `.github/workflows/lint.yml` (Ruff/Mypy/lockfile jobs skip when the PR has no matching path changes; REUSE always runs). Security and package compliance checks are additionally enforced through `.github/workflows/quality-gates.yml` and `.github/workflows/security-pr.yml`.
 
 ## Manual usage for developers
 
