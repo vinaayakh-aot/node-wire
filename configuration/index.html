@@ -2947,8 +2947,13 @@ SPDX-License-Identifier: Apache-2.0
 </tr>
 <tr>
 <td><code>NW_REST_PLAYGROUND_ENABLED</code></td>
-<td>Mount the interactive playground at <code>/playground/</code> when <code>true</code>; when unset, enabled only if a <code>playground/</code> directory exists at the repo root</td>
-<td><em>(auto)</em></td>
+<td>Mount the interactive playground at <code>/playground/</code> and <code>/scenarios/*</code> when <code>true</code>. <strong>Off by default</strong> (checkout only: it is not in any wheel or image). The scenarios run connector actions with the server's credentials, so use it for local development with <code>NW_REST_AUTH_DISABLED=true</code></td>
+<td><code>false</code></td>
+</tr>
+<tr>
+<td><code>NW_REST_PLAYGROUND_ALLOW_WITH_AUTH</code></td>
+<td>Allow the playground to mount when REST auth is configured (<code>NW_REST_API_KEY</code> / <code>NW_REST_JWT_SECRET</code>). Without it the playground is not mounted and an error is logged. <code>/scenarios/*</code> then requires credentials; the playground UI does not send them</td>
+<td><code>false</code></td>
 </tr>
 <tr>
 <td><code>NW_MCP_TRANSPORT</code></td>
@@ -3151,6 +3156,16 @@ shared by every caller, so one noisy identity can still exhaust it for everyone.
 <td><code>false</code></td>
 </tr>
 <tr>
+<td><code>NW_BREAKER_&lt;CONNECTOR_ID&gt;_FAIL_MAX</code></td>
+<td>Failed invocations that open that connector's circuit breaker, per tenant instance. <code>&lt;CONNECTOR_ID&gt;</code> is upper-cased with non-alphanumerics as <code>_</code> (<code>http_generic</code> is <code>HTTP_GENERIC</code>). A connector can also set the <code>breaker_fail_max</code> class attribute; the variable wins. Only upstream-health failures count (see <a href="../architecture/domain/#results-and-errors">Domain</a>)</td>
+<td><code>5</code></td>
+</tr>
+<tr>
+<td><code>NW_BREAKER_&lt;CONNECTOR_ID&gt;_RESET_TIMEOUT</code></td>
+<td>Seconds the breaker stays open before one trial call is allowed. Class attribute: <code>breaker_reset_timeout</code></td>
+<td><code>30</code></td>
+</tr>
+<tr>
 <td><code>NW_RATE_LIMIT_PER_IDENTITY_MAX_REQUESTS</code></td>
 <td>Requests allowed per window, per identity</td>
 <td><code>120</code></td>
@@ -3226,6 +3241,31 @@ shared by every caller, so one noisy identity can still exhaust it for everyone.
 <td><code>NW_TENANT_ID_HEADER</code></td>
 <td>HTTP/gRPC header name for tenant id (case-insensitive)</td>
 <td><code>X-Tenant-ID</code></td>
+</tr>
+<tr>
+<td><code>NW_ALLOW_LOCAL_SECRET_FILE</code></td>
+<td><code>true</code> enables the encrypted local secret file (development). Without a secret store, <code>/v1</code> secret writes fail with 400. See <a href="../architecture/tenancy/#where-tenant-secrets-are-stored">Tenancy</a>.</td>
+<td><code>false</code></td>
+</tr>
+<tr>
+<td><code>NW_LOCAL_SECRET_KEY</code></td>
+<td>Fernet key that encrypts the local secret file. Required with <code>NW_ALLOW_LOCAL_SECRET_FILE</code>.</td>
+<td>unset</td>
+</tr>
+<tr>
+<td><code>NW_LOCAL_SECRET_FILE</code></td>
+<td>Absolute path of the local secret file, outside the source tree. Required with <code>NW_ALLOW_LOCAL_SECRET_FILE</code>.</td>
+<td>unset</td>
+</tr>
+<tr>
+<td><code>NW_API_KEYS_FILE</code></td>
+<td>JSON file of tenant-bound API keys <code>[{key_id, hash, tenant, scopes}]</code> (SHA-256 hashes), used by REST, gRPC and MCP. See <a href="../architecture/tenancy/#tenant-bound-api-keys">Tenancy</a>.</td>
+<td>unset</td>
+</tr>
+<tr>
+<td><code>NW_TRUSTED_TENANT_HEADER</code></td>
+<td><code>true</code> when an authenticating gateway sets the tenant header, so tenant-less credentials may use it. Required for the shared API key in multi-tenant mode unless <code>NW_API_KEYS_FILE</code> is set.</td>
+<td><code>false</code></td>
 </tr>
 <tr>
 <td><code>NW_TENANTS_PATH</code></td>
