@@ -192,15 +192,10 @@ secret), category `FATAL`: the server is misconfigured, so REST answers 500, not
 | `env` _(default)_ | Reads from process environment. Raises `SecretNotFoundError` for absent keys (fail-closed). |
 | `aws_env` | Tries AWS Secrets Manager JSON bundle first; falls back to env on `SecretNotFoundError`. Propagates `SecretProviderError` immediately (broken provider is never silently swallowed). |
 
-Additional cloud backends (`vault`, `azure`, `gcp`) ship as optional extras in
-`node-wire-runtime` but are **not** currently wired into the factory — using them
-requires custom composition:
+`aws_env` needs the `aws` extra:
 
 ```bash
 pip install "node-wire-runtime[aws]"    # boto3
-pip install "node-wire-runtime[vault]"  # hvac
-pip install "node-wire-runtime[azure]"  # azure-keyvault-secrets
-pip install "node-wire-runtime[gcp]"    # google-cloud-secret-manager
 ```
 
 ### Google Drive Service Account (Local Example)

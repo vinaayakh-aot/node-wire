@@ -23,7 +23,7 @@ Install this package to write your own connector, or as the base for the
 | Resilience | Retries with backoff (Tenacity), a per-tenant circuit breaker, and rate limiting |
 | Errors | One `ConnectorResponse` shape for every call, and a shared error taxonomy (`RETRYABLE`, `BUSINESS`, `AUTH`, `FATAL`) with stable error codes |
 | Authentication | Providers for no auth, static tokens and credentials, API keys in query strings, OAuth 2.0 (client credentials with a client secret or private-key JWT, and refresh tokens) and Google service accounts |
-| Secrets | A pluggable `SecretProvider`: environment variables built in; AWS Secrets Manager, HashiCorp Vault, Azure Key Vault and GCP Secret Manager as extras |
+| Secrets | A pluggable `SecretProvider`: environment variables built in; AWS Secrets Manager as an extra |
 | Multi-tenancy | A runtime config store of named per-tenant configs, tenant-pinned connector instances, and tenant-scoped secrets |
 | Policy | A policy hook on every call, including MCP scope policies |
 | Observability | OpenTelemetry traces and metrics, optional Traceloop / OpenLLMetry, and log redaction |
@@ -35,13 +35,10 @@ Install this package to write your own connector, or as the base for the
 pip install node-wire-runtime
 ```
 
-Cloud secret backends are optional extras. Install only the ones you use:
+To read secrets from AWS Secrets Manager (`NW_SECRET_BACKEND=aws_env`), install the `aws` extra:
 
 ```bash
 pip install "node-wire-runtime[aws]"    # AWS Secrets Manager (boto3)
-pip install "node-wire-runtime[vault]"  # HashiCorp Vault (hvac)
-pip install "node-wire-runtime[azure]"  # Azure Key Vault
-pip install "node-wire-runtime[gcp]"    # GCP Secret Manager
 ```
 
 Pre-releases are published as `X.Y.ZbN`; install one with `pip install --pre node-wire-runtime`.
