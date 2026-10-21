@@ -31,92 +31,13 @@ External callers reach the platform over REST, gRPC, or MCP. Each binding adapte
 transport-specific tenant and caller identity, then hands off to the shared invoke seam, as
 the following diagram shows:
 
-```mermaid
-flowchart TB
-    subgraph input["Deployment input · outside the layers"]
-        Config[/"config/connectors.yaml<br/>or NW_CONFIG_PATH"/]
-    end
-
-    subgraph layerC["Layer C · Bindings · src/bindings/"]
-        RestAPI["REST API<br/>FastAPI :8000"]
-        GrpcSrv["gRPC server<br/>:50051"]
-        McpSrv["MCP server<br/>stdio · HTTP"]
-        Invoke["invoke.py · shared seam<br/>exposure → factory.get → normalize"]
-        Factory["ConnectorFactory"]
-    end
-
-    subgraph layerA["Layer A · Runtime · src/node_wire_runtime/"]
-        Store[("ConnectorConfigStore<br/>per-tenant configs")]
-        Run["BaseConnector.run<br/>validate → policy → resilience → error mapping"]
-    end
-
-    subgraph layerB["Layer B · Connectors · src/node_wire_*/"]
-        Pkg["Package per connector<br/>schema.py · discriminated union<br/>logic.py · class + error_map<br/>normalizers.py · optional"]
-        Actions["Connector class · BaseConnector or RestConnector<br/>@sdk_action / @nw_action / action_specs"]
-        Shipped["Shipped connectors<br/>google_drive · smtp · stripe · http_generic<br/>salesforce · slack · fhir_epic · fhir_cerner"]
-    end
-
-    Ext[["External systems · third-party APIs"]]
-
-    RestAPI -- "tenant: header / JWT" --> Invoke
-    GrpcSrv -- "tenant: metadata" --> Invoke
-    McpSrv -- "tenant: session / pin" --> Invoke
-    Invoke -- "1 · get(tenant, config)" --> Factory
-    Invoke -- "2 · run() → ConnectorResponse" --> Run
-    Config -. "read by load()" .-> Factory
-    Factory -- "load(): bootstrap __default__<br/>get(): resolve config" --> Store
-    Factory -. "builds tenant-pinned instance<br/>injects SecretProvider · AuthProvider · PolicyHook" .-> Run
-    Run -- "internal_execute" --> Actions
-    Actions --> Ext
-    Run ~~~ Pkg
-    Run ~~~ Shipped
-
-    classDef binding fill:#ddf1fb,stroke:#1a88b0,stroke-width:1px,color:#0d2f3d
-    classDef store fill:#f2f4f7,stroke:#8a9bac,stroke-width:1px,color:#1c2733
-    classDef runtime fill:#fdf2d6,stroke:#b8860b,stroke-width:1px,color:#3a2c05
-    classDef connector fill:#fde2ea,stroke:#b81548,stroke-width:1px,color:#3d0a1d
-    classDef ext fill:#ddf5f0,stroke:#12867a,stroke-width:1px,color:#0b2f2a
-    class RestAPI,GrpcSrv,McpSrv,Invoke,Factory binding
-    class Config store
-    class Store,Run runtime
-    class Actions,Pkg,Shipped connector
-    class Ext ext
-    style input fill:#f7f8fa,stroke:#8a9bac,stroke-width:1px,stroke-dasharray:4 3,color:#1c2733
-    style layerC fill:#f4fbfe,stroke:#1a88b0,stroke-width:1px,color:#0d2f3d
-    style layerA fill:#fffaf0,stroke:#b8860b,stroke-width:1px,color:#3a2c05
-    style layerB fill:#fff5f8,stroke:#b81548,stroke-width:1px,color:#3d0a1d
-```
+![REST, gRPC and MCP bindings call invoke.py, which gets a tenant-pinned instance from ConnectorFactory and calls BaseConnector.run to run the connector.](images/media/architecture-layers.svg)
 
 ### Request lifecycle
 
 The following sequence follows one request from the client to the external API:
 
-```mermaid
-%%{init: {"sequence": {"actorMargin": 28, "width": 110, "boxMargin": 6, "noteMargin": 6, "messageMargin": 28}}}%%
-sequenceDiagram
-    autonumber
-    participant C as Client
-    participant B as Binding
-    participant I as invoke.py
-    participant R as run()
-    participant X as Connector
-    participant E as External API
-
-    C->>B: request
-    Note over B: resolve tenant<br/>+ config
-    B->>I: invoke(id, action, payload)
-    Note over I: exposure check<br/>factory.get<br/>normalize args
-    I->>R: run(payload, scopes)
-    Note over R: validate → policy<br/>→ resilience
-    R->>X: internal_execute
-    X->>E: outbound call
-    E-->>X: response / error
-    X-->>R: result / exception
-    Note over R: ErrorMapper
-    R-->>I: ConnectorResponse
-    I-->>B: ConnectorResponse
-    B-->>C: encoded response
-```
+![Numbered sequence: a request passes binding, invoke.py, run() and the connector to the external API, and a ConnectorResponse returns the same way.](images/media/architecture-request.svg)
 
 A failure anywhere in `run` is mapped by `ErrorMapper` into the same `ConnectorResponse`
 envelope with an `ErrorCategory` — bindings translate that to an HTTP status, a gRPC code,
@@ -144,33 +65,7 @@ or an MCP tool error, but the connector contract is identical on all three.
 Every action goes through the same sequence. The tenant pin is checked before the
 trace span opens; everything after it runs inside the span, as the following diagram shows:
 
-```mermaid
-flowchart TB
-    In(["run(payload)"]) --> Pin["tenant pin check"]
-    Pin --> Val
-    Pin -. "TENANT_MISMATCH" .-> Err
-
-    Val["Pydantic validation<br/>discriminated union on action"]
-    Pol["PolicyHook · allow / deny<br/>always set on factory instances"]
-    Res["Retries + circuit breaker<br/>Tenacity · circuit breaker"]
-    Exec["internal_execute<br/>dispatch to Layer B"]
-    Val --> Pol --> Res --> Exec
-    Otel(["OpenTelemetry span"]) -. "wraps validate → error mapping" .-> Val
-
-    Err["ErrorMapper<br/>stable code + ErrorCategory"]
-    Pol -. "PolicyDenied" .-> Err
-    Res -. "exception" .-> Err
-    Exec --> Out(["ConnectorResponse"])
-    Err --> Out
-
-    classDef step fill:#fdf2d6,stroke:#b8860b,stroke-width:1px,color:#3a2c05
-    classDef term fill:#eceff3,stroke:#5b7387,stroke-width:1px,color:#1c2733
-    classDef err fill:#fde2ea,stroke:#b81548,stroke-width:1px,color:#3d0a1d
-    class Pin,Val,Pol,Res,Exec step
-    class In,Out term
-    class Err err
-    class Otel term
-```
+![run() checks the tenant pin, validates, applies the PolicyHook and retries, then executes. Failures go to ErrorMapper. Both paths end in ConnectorResponse.](images/media/architecture-run-pipeline.svg)
 
 ---
 

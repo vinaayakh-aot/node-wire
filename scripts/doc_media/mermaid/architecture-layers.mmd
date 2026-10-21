@@ -1,0 +1,57 @@
+%% SPDX-FileCopyrightText: 2026 AOT Technologies
+%% SPDX-License-Identifier: Apache-2.0
+%% title: Node Wire layers
+%% desc: Deployment input config/connectors.yaml is read by ConnectorFactory. In Layer C, the REST API, gRPC server and MCP server each resolve the tenant from a header or JWT, metadata, or the session, and call invoke.py. invoke.py first gets a tenant-pinned instance from ConnectorFactory, which resolves the config in the Layer A ConnectorConfigStore and injects SecretProvider, AuthProvider and PolicyHook, then calls BaseConnector.run in Layer A. run calls internal_execute on the Layer B connector class, which calls the external systems. Layer B also holds the per-connector package and the shipped connectors.
+flowchart TB
+    subgraph input["Deployment input · outside the layers"]
+        Config[/"config/connectors.yaml<br/>or NW_CONFIG_PATH"/]
+    end
+
+    subgraph layerC["Layer C · Bindings · src/bindings/"]
+        RestAPI["REST API<br/>FastAPI :8000"]
+        GrpcSrv["gRPC server<br/>:50051"]
+        McpSrv["MCP server<br/>stdio · HTTP"]
+        Invoke["invoke.py · shared seam<br/>exposure → factory.get → normalize"]
+        Factory["ConnectorFactory"]
+    end
+
+    subgraph layerA["Layer A · Runtime · src/node_wire_runtime/"]
+        Store[("ConnectorConfigStore<br/>per-tenant configs")]
+        Run["BaseConnector.run<br/>validate → policy → resilience → error mapping"]
+    end
+
+    subgraph layerB["Layer B · Connectors · src/node_wire_*/"]
+        Pkg["Package per connector<br/>schema.py · discriminated union<br/>logic.py · class + error_map<br/>normalizers.py · optional"]
+        Actions["Connector class · BaseConnector or RestConnector<br/>@sdk_action / @nw_action / action_specs"]
+        Shipped["Shipped connectors<br/>google_drive · smtp · stripe · http_generic<br/>salesforce · slack · fhir_epic · fhir_cerner"]
+    end
+
+    Ext[["External systems · third-party APIs"]]
+
+    RestAPI -- "tenant: header / JWT" --> Invoke
+    GrpcSrv -- "tenant: metadata" --> Invoke
+    McpSrv -- "tenant: session / pin" --> Invoke
+    Invoke -- "1 · get(tenant, config)" --> Factory
+    Invoke -- "2 · run() → ConnectorResponse" --> Run
+    Config -. "read by load()" .-> Factory
+    Factory -- "load(): bootstrap __default__<br/>get(): resolve config" --> Store
+    Factory -. "builds tenant-pinned instance<br/>injects SecretProvider · AuthProvider · PolicyHook" .-> Run
+    Run -- "internal_execute" --> Actions
+    Actions --> Ext
+    Run ~~~ Pkg
+    Run ~~~ Shipped
+
+    classDef binding fill:#ddf1fb,stroke:#1a88b0,stroke-width:1px,color:#0d2f3d
+    classDef store fill:#f2f4f7,stroke:#8a9bac,stroke-width:1px,color:#1c2733
+    classDef runtime fill:#fdf2d6,stroke:#b8860b,stroke-width:1px,color:#3a2c05
+    classDef connector fill:#fde2ea,stroke:#b81548,stroke-width:1px,color:#3d0a1d
+    classDef ext fill:#ddf5f0,stroke:#12867a,stroke-width:1px,color:#0b2f2a
+    class RestAPI,GrpcSrv,McpSrv,Invoke,Factory binding
+    class Config store
+    class Store,Run runtime
+    class Actions,Pkg,Shipped connector
+    class Ext ext
+    style input fill:#f7f8fa,stroke:#8a9bac,stroke-width:1px,stroke-dasharray:4 3,color:#1c2733
+    style layerC fill:#f4fbfe,stroke:#1a88b0,stroke-width:1px,color:#0d2f3d
+    style layerA fill:#fffaf0,stroke:#b8860b,stroke-width:1px,color:#3a2c05
+    style layerB fill:#fff5f8,stroke:#b81548,stroke-width:1px,color:#3d0a1d

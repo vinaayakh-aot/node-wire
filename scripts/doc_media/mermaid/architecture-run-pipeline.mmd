@@ -1,0 +1,29 @@
+%% SPDX-FileCopyrightText: 2026 AOT Technologies
+%% SPDX-License-Identifier: Apache-2.0
+%% title: The run() pipeline
+%% desc: run(payload) goes through the tenant pin check, Pydantic validation, the PolicyHook, retries with a circuit breaker, then internal_execute, ending in a ConnectorResponse. A tenant mismatch, a policy denial or an exception goes to ErrorMapper, which also returns a ConnectorResponse. An OpenTelemetry span wraps everything from validation to error mapping.
+flowchart TB
+    In(["run(payload)"]) --> Pin["tenant pin check"]
+    Pin --> Val
+    Pin -. "TENANT_MISMATCH" .-> Err
+
+    Val["Pydantic validation<br/>discriminated union on action"]
+    Pol["PolicyHook · allow / deny<br/>always set on factory instances"]
+    Res["Retries + circuit breaker<br/>Tenacity · circuit breaker"]
+    Exec["internal_execute<br/>dispatch to Layer B"]
+    Val --> Pol --> Res --> Exec
+    Otel(["OpenTelemetry span"]) -. "wraps validate → error mapping" .-> Val
+
+    Err["ErrorMapper<br/>stable code + ErrorCategory"]
+    Pol -. "PolicyDenied" .-> Err
+    Res -. "exception" .-> Err
+    Exec --> Out(["ConnectorResponse"])
+    Err --> Out
+
+    classDef step fill:#fdf2d6,stroke:#b8860b,stroke-width:1px,color:#3a2c05
+    classDef term fill:#eceff3,stroke:#5b7387,stroke-width:1px,color:#1c2733
+    classDef err fill:#fde2ea,stroke:#b81548,stroke-width:1px,color:#3d0a1d
+    class Pin,Val,Pol,Res,Exec step
+    class In,Out term
+    class Err err
+    class Otel term

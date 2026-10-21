@@ -1,0 +1,28 @@
+%% SPDX-FileCopyrightText: 2026 AOT Technologies
+%% SPDX-License-Identifier: Apache-2.0
+%% title: Request lifecycle
+%% desc: A numbered sequence across Client, Binding, invoke.py, run(), Connector and External API. The binding resolves tenant and config, invoke.py checks exposure, gets the instance from the factory and normalizes arguments, run validates, applies policy and resilience, the connector makes the outbound call, ErrorMapper maps any failure, and the ConnectorResponse returns through invoke.py and the binding to the client as an encoded response.
+%%{init: {"sequence": {"actorMargin": 28, "width": 110, "boxMargin": 6, "noteMargin": 6, "messageMargin": 28}}}%%
+sequenceDiagram
+    autonumber
+    participant C as Client
+    participant B as Binding
+    participant I as invoke.py
+    participant R as run()
+    participant X as Connector
+    participant E as External API
+
+    C->>B: request
+    Note over B: resolve tenant<br/>+ config
+    B->>I: invoke(id, action, payload)
+    Note over I: exposure check<br/>factory.get<br/>normalize args
+    I->>R: run(payload, scopes)
+    Note over R: validate → policy<br/>→ resilience
+    R->>X: internal_execute
+    X->>E: outbound call
+    E-->>X: response / error
+    X-->>R: result / exception
+    Note over R: ErrorMapper
+    R-->>I: ConnectorResponse
+    I-->>B: ConnectorResponse
+    B-->>C: encoded response
