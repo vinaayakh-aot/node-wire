@@ -223,6 +223,12 @@ def resolve_and_validate(
         return {"type": "object", "additionalProperties": True, "x-recursive-ref": target}
 
     try:
+        # Repair before validating, and before inlining so inlined copies are repaired too.
+        repaired = sanitize_draft4_schemas(doc)
+        # The validator follows each $ref once in the bundled document; on the inlined tree
+        # it re-walks every shared schema at each use site (27 s vs 9 s on GitHub's spec).
+        # Any failure re-validates after inlining, where invalid parts are dropped one by one.
+        bundled_valid = _bundled_document_is_valid(doc, base_url)
         try:
             resolved = resolve_local_refs(doc)
         except ValueError:
@@ -240,20 +246,34 @@ def resolve_and_validate(
                 len(cut_refs),
                 ", ".join(sorted(cut_refs)),
             )
-        # After resolution so inlined $ref targets are covered too.
-        repaired = sanitize_draft4_schemas(resolved)
+        # Again after resolution: content inlined from other files was not repaired above.
+        sanitize_draft4_schemas(resolved, repaired)
         if repaired:
             logger.warning(
                 "Repaired draft-4 schema constructs invalid in OpenAPI 3.0: %s",
                 ", ".join(f"{k}={v}" for k, v in sorted(repaired.items())),
             )
-        _validate_dropping_invalid_parts(resolved)
+        if not bundled_valid:
+            _validate_dropping_invalid_parts(resolved)
     except SpecLoadError:
         raise
     except Exception as exc:  # noqa: BLE001
         raise SpecLoadError(f"OpenAPI validation/deref failed: {exc}") from exc
 
     return resolved
+
+
+def _bundled_document_is_valid(doc: dict[str, Any], base_url: str) -> bool:
+    """Whether ``doc`` validates with its ``$ref``s left in place."""
+    from openapi_spec_validator import validate
+
+    base_uri = base_url if urlparse(base_url).scheme in ("http", "https") else Path(base_url).as_uri()
+    try:
+        validate(doc, base_uri=base_uri)
+    except Exception as exc:  # noqa: BLE001 - the inlined path below reports the real error
+        logger.debug("Bundled document failed validation (%s: %s)", type(exc).__name__, exc)
+        return False
+    return True
 
 
 # Set on the resolved document for derive: operations and components that failed

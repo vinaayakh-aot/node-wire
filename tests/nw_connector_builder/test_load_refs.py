@@ -123,3 +123,28 @@ def test_falls_back_to_prance_for_other_shapes(node: dict[str, Any]) -> None:
     doc = _shared_ref_spec(3)
     doc["components"]["schemas"]["Odd"] = node
     assert resolve_local_refs(doc) is None
+
+
+def test_valid_bundled_document_skips_inlined_validation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import nw_connector_builder.load as load
+
+    def _inlined_validation(_resolved: dict[str, Any]) -> None:
+        raise AssertionError("inlined validation should not run for a valid bundled document")
+
+    monkeypatch.setattr(load, "_validate_dropping_invalid_parts", _inlined_validation)
+    resolved = resolve_and_validate(
+        _shared_ref_spec(8), from_url=False, base_url=str(tmp_path / "spec.json")
+    )
+    assert "$ref" not in str(resolved)
+
+
+def test_invalid_bundled_document_still_drops_invalid_operation(tmp_path: Path) -> None:
+    from nw_connector_builder.load import INVALID_OPERATIONS_KEY
+
+    doc = _shared_ref_spec(4)
+    doc["paths"]["/bad"] = {"get": {"responses": {"200": {"description": 1}}}}
+    resolved = resolve_and_validate(doc, from_url=False, base_url=str(tmp_path / "spec.json"))
+    assert "/bad" not in resolved["paths"] or "get" not in resolved["paths"]["/bad"]
+    assert [op["path"] for op in resolved[INVALID_OPERATIONS_KEY]] == ["/bad"]
