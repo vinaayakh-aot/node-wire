@@ -203,6 +203,7 @@ def resolve_and_validate(
 
     try:
         from prance.util.resolver import RefResolver
+        from prance.util.url import absurl
     except ImportError as exc:
         raise SpecLoadError(
             "prance[osv] / openapi-spec-validator required (pip install 'prance[osv]')"
@@ -215,12 +216,16 @@ def resolve_and_validate(
 
     cut_refs: set[str] = set()
 
-    def _cut_recursive_ref(_limit: int, parsed_url: Any, _recursions: Any = ()) -> dict[str, Any]:
+    def _cut(target: str) -> dict[str, Any]:
         # A $ref cycle (Graph's chatMessage.replies, team <-> channel) never finishes
         # inlining. Replace the edge that re-enters a schema with a permissive object.
-        target = parsed_url.geturl()
         cut_refs.add(target.rsplit("/", 1)[-1])
         return {"type": "object", "additionalProperties": True, "x-recursive-ref": target}
+
+    def _cut_recursive_ref(_limit: int, parsed_url: Any, _recursions: Any = ()) -> dict[str, Any]:
+        return _cut(parsed_url.geturl())
+
+    doc_url = absurl(base_url).geturl()
 
     try:
         # Repair before validating, and before inlining so inlined copies are repaired too.
@@ -230,9 +235,9 @@ def resolve_and_validate(
         # Any failure re-validates after inlining, where invalid parts are dropped one by one.
         bundled_valid = _bundled_document_is_valid(doc, base_url)
         try:
-            resolved = resolve_local_refs(doc)
+            resolved = resolve_local_refs(doc, on_cycle=lambda ref: _cut(doc_url + ref))
         except ValueError:
-            # A $ref cycle or a dangling ref: prance cuts the cycle, or reports the ref.
+            # A dangling ref: prance reports it.
             resolved = None
         if resolved is None:
             resolver = RefResolver(doc, url=base_url, recursion_limit_handler=_cut_recursive_ref)
@@ -267,7 +272,9 @@ def _bundled_document_is_valid(doc: dict[str, Any], base_url: str) -> bool:
     """Whether ``doc`` validates with its ``$ref``s left in place."""
     from openapi_spec_validator import validate
 
-    base_uri = base_url if urlparse(base_url).scheme in ("http", "https") else Path(base_url).as_uri()
+    base_uri = (
+        base_url if urlparse(base_url).scheme in ("http", "https") else Path(base_url).as_uri()
+    )
     try:
         validate(doc, base_uri=base_uri)
     except Exception as exc:  # noqa: BLE001 - the inlined path below reports the real error

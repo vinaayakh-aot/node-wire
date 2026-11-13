@@ -166,6 +166,36 @@ def test_tenants_persist_roundtrip(monkeypatch: pytest.MonkeyPatch, tmp_path: Pa
     )
 
 
+def test_tricky_config_values_survive_save_and_load(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """The file is written and read with libyaml when available; values must round-trip,
+    and the file must read the same with the pure-Python loader (older readers, tools)."""
+    path = tmp_path / "t.yaml"
+    monkeypatch.setenv("NW_TENANTS_PATH", str(path))
+    tricky = {
+        "unicode": "café — naïve ✓ 日本語",
+        "multiline": "line one\nline two: with colon\n  indented",
+        "yaml_words": ["yes", "no", "on", "off", "null", "~", "true"],
+        "number_like": ["0123", "1e3", "0x1F", "1_000", "12:30"],
+        "punctuation": "# not a comment: [x] {y} & *z !tag | > ' \"",
+        "spaces": "  leading and trailing  ",
+        "long": "x" * 200 + " " + "y" * 200,
+        "empty": "",
+        "nested": {"list": [1, 2.5, None, False]},
+    }
+    store = _factory().store
+    store.create("acme", "smtp", {"name": "tricky", "default": True, "config": tricky})
+    save_tenants(store)
+
+    text = path.read_text(encoding="utf-8")
+    assert yaml.safe_load(text) == yaml.load(text, Loader=yaml.CSafeLoader)
+    fresh = _factory().store
+    load_tenants(fresh)
+    assert fresh.get("acme", "smtp", "tricky") == store.get("acme", "smtp", "tricky")
+    assert fresh.get("acme", "smtp", "tricky")["config"] == tricky
+
+
 def test_new_config_without_secrets_rejected(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setenv("NW_MULTITENANCY_ENABLED", "true")
     factory = _factory()

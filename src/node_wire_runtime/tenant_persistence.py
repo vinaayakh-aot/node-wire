@@ -51,6 +51,10 @@ from node_wire_runtime.secrets.local_file import LocalEncryptedFileStore, write_
 
 logger = logging.getLogger("runtime.tenant_persistence")
 
+# libyaml when PyYAML was built with it: several times faster on a large tenants file.
+_YAML_DUMPER = getattr(yaml, "CSafeDumper", yaml.SafeDumper)
+_YAML_LOADER = getattr(yaml, "CSafeLoader", yaml.SafeLoader)
+
 _REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 DEFAULT_TENANTS_PATH = _REPO_ROOT / "config" / "tenants.yaml"
 _LEGACY_TENANTS_PATH = _REPO_ROOT / "config" / "playground_tenants.yaml"
@@ -614,8 +618,12 @@ def save_tenants(store: ConnectorConfigStore) -> None:
             secrets = mirror
         path.parent.mkdir(parents=True, exist_ok=True)
         payload = {"tenants": tenants, "secrets": secrets}
-        text = yaml.safe_dump(
-            payload, default_flow_style=False, allow_unicode=True, sort_keys=False
+        text = yaml.dump(
+            payload,
+            Dumper=_YAML_DUMPER,
+            default_flow_style=False,
+            allow_unicode=True,
+            sort_keys=False,
         )
         write_private_file(path, text.encode("utf-8"))
     logger.info("Wrote tenants file", extra={"path": str(path)})
@@ -716,7 +724,7 @@ def load_tenants(store: ConnectorConfigStore) -> None:
         return
     with _lock:
         with open(path, encoding="utf-8") as f:
-            raw = yaml.safe_load(f) or {}
+            raw = yaml.load(f, Loader=_YAML_LOADER) or {}  # nosec B506 - a safe loader
         if not isinstance(raw, dict):
             logger.warning("Ignoring invalid tenants file", extra={"path": str(path)})
             return

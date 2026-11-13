@@ -304,6 +304,17 @@ def _misplaced_key_hint(exc: Any) -> str:
     return f" ({'; '.join(hints)})" if hints else ""
 
 
+def _sdk_tool(tool: Mapping[str, Any]) -> Any:
+    """A listed tool dict (tenant or search tool) as the SDK's ``Tool``, schema LLM-safe."""
+    from mcp.types import Tool
+
+    return Tool(
+        name=tool["name"],
+        description=tool["description"],
+        inputSchema=mcp_llm_safe_input_schema(tool["input_schema"]),
+    )
+
+
 def _tool_description(entry: Mapping[str, Any]) -> str:
     """Tool description: the input model's docstring, plus notes a caller can act on.
 
@@ -649,10 +660,14 @@ class McpServer:
         self._manifest_cache: Optional[
             Tuple[Tuple[Any, ...], List[Dict[str, Any]], Dict[str, List[Dict[str, Any]]]]
         ] = None
-        # (manifest, multitenancy, (connector_id, action) -> (schema, validator));
+        # (manifest, multitenancy, (connector_id, action) -> [schema, validator or None]);
         # see _advertised_entry_schema().
         self._advertised_schema_cache: Optional[
-            Tuple[List[Dict[str, Any]], bool, Dict[Tuple[str, str], Tuple[Any, Any]]]
+            Tuple[List[Dict[str, Any]], bool, Dict[Tuple[str, str], List[Any]]]
+        ] = None
+        # (manifest, multitenancy, [(entry, Tool)], every Tool); see _advertised_tools().
+        self._advertised_tools_cache: Optional[
+            Tuple[List[Dict[str, Any]], bool, List[Tuple[Dict[str, Any], Any]], List[Any]]
         ] = None
         auto_register()
         if factory is not None:
@@ -754,15 +769,18 @@ class McpServer:
     def _tool_input_schema(entry: Mapping[str, Any]) -> Dict[str, Any]:
         return _tool_input_schema(entry, multitenancy=is_multitenancy_enabled())
 
-    def _advertised_entry_schema(self, entry: Mapping[str, Any]) -> Tuple[Any, Any]:
+    def _advertised_entry_schema(
+        self, entry: Mapping[str, Any], *, with_validator: bool = True
+    ) -> Tuple[Any, Any]:
         """(LLM-safe input schema, compiled validator) for a manifest entry, built once.
 
         Both depend only on the manifest and the multitenancy flag, yet tools/list
-        and every tools/call used to rebuild them. The cached schema is shared:
-        callers must not mutate it.
+        and every tools/call used to rebuild them. The validator is compiled on the
+        first call that needs one (``with_validator=False`` returns ``None`` for it),
+        so listing 1,239 tools does not compile 1,239 validators. The cached schema
+        is shared: callers must not mutate it.
         """
-        manifest, _ = self._manifest()
-        multitenancy = is_multitenancy_enabled()
+        manifest, multitenancy = self._advertised_key()
         cache = self._advertised_schema_cache
         if cache is None or cache[0] is not manifest or cache[1] != multitenancy:
             cache = (manifest, multitenancy, {})
@@ -771,8 +789,64 @@ class McpServer:
         hit = cache[2].get(key)
         if hit is None:
             schema = mcp_llm_safe_input_schema(_tool_input_schema(entry, multitenancy=multitenancy))
-            hit = cache[2][key] = (schema, compile_tool_validator(schema))
-        return hit
+            hit = cache[2][key] = [schema, None]
+        if with_validator and hit[1] is None:
+            hit[1] = compile_tool_validator(hit[0])
+        return hit[0], hit[1]
+
+    def _advertised_key(self) -> Tuple[List[Dict[str, Any]], bool]:
+        """What every advertised schema and Tool depends on: the manifest and multitenancy."""
+        return self._manifest()[0], is_multitenancy_enabled()
+
+    def _advertised_tools(self) -> Tuple[List[Tuple[Dict[str, Any], Any]], List[Any]]:
+        """``(entry, Tool)`` for every manifest tool, and every Tool this server can list.
+
+        Built once per manifest and multitenancy flag; a listing then only filters by
+        visibility. The second list (manifest, tenant and search tools, unfiltered) is
+        what the SDK's own tool cache gets when it relists inside a tools/call; it is
+        never sent to a client.
+        """
+        from mcp.types import Tool
+
+        manifest, multitenancy = self._advertised_key()
+        cached = self._advertised_tools_cache
+        if cached is None or cached[0] is not manifest or cached[1] != multitenancy:
+            rows = [
+                (
+                    entry,
+                    Tool(
+                        name=mcp_advertised_tool_name(
+                            str(entry["connector_id"]), str(entry["action"])
+                        ),
+                        description=_tool_description(entry),
+                        inputSchema=self._advertised_entry_schema(entry, with_validator=False)[0],
+                    ),
+                )
+                for entry in manifest
+            ]
+            extras = self._tenant_tools() if multitenancy else []
+            if self._tool_mode == "search":
+                extras += self._search_mode_tools(len(rows))
+            every = [tool for _, tool in rows] + [_sdk_tool(t) for t in extras]
+            cached = (manifest, multitenancy, rows, every)
+            self._advertised_tools_cache = cached
+        return cached[2], cached[3]
+
+    def _advertised_tool_list(self, identity: CallerIdentity | None) -> List[Any]:
+        """The Tools ``identity`` may see, as tools/list sends them."""
+        scope_map = load_scope_map_from_env()
+        default_mode = load_scope_policy_default_from_env()
+        rows, _ = self._advertised_tools()
+        tools = [
+            tool
+            for entry, tool in rows
+            if self._tool_visible(entry, identity, scope_map=scope_map, default_mode=default_mode)
+        ]
+        if self._tool_mode == "search":
+            tools = [_sdk_tool(t) for t in self._search_mode_tools(len(tools))]
+        if is_multitenancy_enabled():
+            tools = [_sdk_tool(t) for t in self._tenant_tools()] + tools
+        return tools
 
     def _advertised_input_schema(
         self, tool_name: str, *, identity: CallerIdentity | None = None
@@ -804,154 +878,136 @@ class McpServer:
             return None
         return self._advertised_entry_schema(entry)
 
-    def _list_tools_impl(
-        self, *, identity: CallerIdentity | None = None, advertised: bool = False
-    ) -> List[Dict[str, Any]]:
-        """Visible tools. ``advertised=True`` returns LLM-safe input schemas (cached
-        and shared for manifest tools: do not mutate) for tools/list."""
+    def _list_tools_impl(self, *, identity: CallerIdentity | None = None) -> List[Dict[str, Any]]:
+        """Visible tools with their full input schemas (tools/list sends the LLM-safe
+        ones from :meth:`_advertised_tool_list`)."""
         scope_map = load_scope_map_from_env()
         default_mode = load_scope_policy_default_from_env()
         manifest, _ = self._manifest()
         tools: List[Dict[str, Any]] = []
-        safe_names: set[str] = set()
         for entry in manifest:
-            cid = entry["connector_id"]
             if not self._tool_visible(
                 entry, identity, scope_map=scope_map, default_mode=default_mode
             ):
                 continue
-            tool_desc = _tool_description(entry)
-            if advertised:
-                input_schema = self._advertised_entry_schema(entry)[0]
-                safe_names.add(mcp_advertised_tool_name(cid, str(entry["action"])))
-            else:
-                input_schema = self._tool_input_schema(entry)
-
             tools.append(
                 {
-                    "name": mcp_advertised_tool_name(cid, str(entry["action"])),
-                    "description": tool_desc,
-                    "input_schema": input_schema,
+                    "name": mcp_advertised_tool_name(
+                        str(entry["connector_id"]), str(entry["action"])
+                    ),
+                    "description": _tool_description(entry),
+                    "input_schema": self._tool_input_schema(entry),
                     "output_schema": entry["output_schema"],
                 }
             )
         if self._tool_mode == "search":
             tools = self._search_mode_tools(len(tools))
         if is_multitenancy_enabled():
-            tools.insert(
-                0,
-                {
-                    "name": SELECT_CONFIG_TOOL,
-                    "description": (
-                        "Select one config name for every connector on this server. "
-                        "Connectors that lack this name on the current tenant fail on "
-                        "the next tool call. Does not create configs."
-                    ),
-                    "input_schema": {
-                        "type": "object",
-                        "properties": {
-                            "config_name": {
-                                "type": "string",
-                                "description": "Config name from nw_list_configs / nw_select_tenant.",
-                            },
-                        },
-                        "required": ["config_name"],
-                    },
-                    "output_schema": {"type": "object"},
-                },
-            )
-            tools.insert(
-                0,
-                {
-                    "name": LIST_CONFIGS_TOOL,
-                    "description": (
-                        "List named connector configs for a tenant from the config store. "
-                        "Optional tenant_id; omit to use the selected or pinned tenant. "
-                        "Read-only; does not create configs. Call nw_select_config "
-                        "with a returned name to apply it to every connector."
-                    ),
-                    "input_schema": {
-                        "type": "object",
-                        "properties": {
-                            "connector_id": {
-                                "type": ["string", "null"],
-                                "description": (
-                                    "Optional connector id to filter (e.g. google_drive). "
-                                    'Omit, or pass null/"none", to list all connectors '
-                                    "for this tenant."
-                                ),
-                            },
-                            "tenant_id": {
-                                "type": ["string", "null"],
-                                "description": (
-                                    'Optional tenant id. Omit, or pass null/"none", for '
-                                    "the selected or pinned tenant."
-                                ),
-                            },
-                        },
-                    },
-                    "output_schema": {"type": "object"},
-                },
-            )
-            tools.insert(
-                0,
-                {
-                    "name": SELECT_TENANT_TOOL,
-                    "description": (
-                        "Switch the tenant for every connector on this MCP server. "
-                        "Returns named configs for that tenant. Env/header pin is the "
-                        "default until this is called. Does not create tenants."
-                    ),
-                    "input_schema": {
-                        "type": "object",
-                        "properties": {
-                            "tenant_id": {
-                                "type": "string",
-                                "description": "Tenant id from nw_list_tenants.",
-                            },
-                            "connector_id": {
-                                "type": ["string", "null"],
-                                "description": (
-                                    "Optional connector id to filter returned configs. "
-                                    'Omit, or pass null/"none", for all connectors.'
-                                ),
-                            },
-                        },
-                        "required": ["tenant_id"],
-                    },
-                    "output_schema": {"type": "object"},
-                },
-            )
-            tools.insert(
-                0,
-                {
-                    "name": LIST_TENANTS_TOOL,
-                    "description": (
-                        "List tenant ids from the config store that have at least one named "
-                        "config. Optional connector_id filters to tenants that have that "
-                        "connector. After listing, call nw_select_tenant to switch."
-                    ),
-                    "input_schema": {
-                        "type": "object",
-                        "properties": {
-                            "connector_id": {
-                                "type": ["string", "null"],
-                                "description": (
-                                    "Optional connector id (e.g. google_drive). Omit, or "
-                                    'pass null/"none", to list tenants that have any '
-                                    "connector on this server."
-                                ),
-                            },
-                        },
-                    },
-                    "output_schema": {"type": "object"},
-                },
-            )
-        if advertised:
-            for t in tools:
-                if t["name"] not in safe_names:
-                    t["input_schema"] = mcp_llm_safe_input_schema(t["input_schema"])
+            tools = self._tenant_tools() + tools
         return tools
+
+    @staticmethod
+    def _tenant_tools() -> List[Dict[str, Any]]:
+        """The tenant and config tools listed first when multitenancy is on."""
+        return [
+            {
+                "name": LIST_TENANTS_TOOL,
+                "description": (
+                    "List tenant ids from the config store that have at least one named "
+                    "config. Optional connector_id filters to tenants that have that "
+                    "connector. After listing, call nw_select_tenant to switch."
+                ),
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "connector_id": {
+                            "type": ["string", "null"],
+                            "description": (
+                                "Optional connector id (e.g. google_drive). Omit, or "
+                                'pass null/"none", to list tenants that have any '
+                                "connector on this server."
+                            ),
+                        },
+                    },
+                },
+                "output_schema": {"type": "object"},
+            },
+            {
+                "name": SELECT_TENANT_TOOL,
+                "description": (
+                    "Switch the tenant for every connector on this MCP server. "
+                    "Returns named configs for that tenant. Env/header pin is the "
+                    "default until this is called. Does not create tenants."
+                ),
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "tenant_id": {
+                            "type": "string",
+                            "description": "Tenant id from nw_list_tenants.",
+                        },
+                        "connector_id": {
+                            "type": ["string", "null"],
+                            "description": (
+                                "Optional connector id to filter returned configs. "
+                                'Omit, or pass null/"none", for all connectors.'
+                            ),
+                        },
+                    },
+                    "required": ["tenant_id"],
+                },
+                "output_schema": {"type": "object"},
+            },
+            {
+                "name": LIST_CONFIGS_TOOL,
+                "description": (
+                    "List named connector configs for a tenant from the config store. "
+                    "Optional tenant_id; omit to use the selected or pinned tenant. "
+                    "Read-only; does not create configs. Call nw_select_config "
+                    "with a returned name to apply it to every connector."
+                ),
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "connector_id": {
+                            "type": ["string", "null"],
+                            "description": (
+                                "Optional connector id to filter (e.g. google_drive). "
+                                'Omit, or pass null/"none", to list all connectors '
+                                "for this tenant."
+                            ),
+                        },
+                        "tenant_id": {
+                            "type": ["string", "null"],
+                            "description": (
+                                'Optional tenant id. Omit, or pass null/"none", for '
+                                "the selected or pinned tenant."
+                            ),
+                        },
+                    },
+                },
+                "output_schema": {"type": "object"},
+            },
+            {
+                "name": SELECT_CONFIG_TOOL,
+                "description": (
+                    "Select one config name for every connector on this server. "
+                    "Connectors that lack this name on the current tenant fail on "
+                    "the next tool call. Does not create configs."
+                ),
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "config_name": {
+                            "type": "string",
+                            "description": "Config name from nw_list_configs / nw_select_tenant.",
+                        },
+                    },
+                    "required": ["config_name"],
+                },
+                "output_schema": {"type": "object"},
+            },
+        ]
 
     def _resolve_tool_tenant_id(self, identity: CallerIdentity | None) -> str:
         session_tenant = _session_tenant_ctx.get()
@@ -1715,7 +1771,6 @@ class McpServer:
 
     def _setup_lowlevel_server(self) -> Any:
         from mcp.server import Server as LowLevelServer
-        from mcp.types import Tool
 
         # Published once here rather than in every tool description.
         low = LowLevelServer(
@@ -1730,15 +1785,17 @@ class McpServer:
         # request: it passes None when refreshing its own tool cache inside a tools/call.
         @low.list_tools()
         async def handle_list_tools(request: ListToolsRequest) -> list[Any]:
+            if request is None:
+                # The SDK refreshing its own tool cache inside a tools/call (a tool name it
+                # has not seen listed). Nothing reaches the client: with validate_input=False
+                # and no outputSchema the cache only stops "not listed" warnings, so it gets
+                # every tool, prebuilt, without the auth check and visibility filtering that
+                # handle_call_tool does itself.
+                return self._advertised_tools()[1]
             meta = self._request_meta_from_context()
             try:
                 identity = self._ensure_identity(identity=None, meta=meta)
             except McpAuthError as exc:
-                if request is None:
-                    # The SDK refreshing its tool cache inside a tools/call, not a client's
-                    # tools/list: list nothing, and let handle_call_tool report the auth failure
-                    # as a coded result (raising here would reach the client as SDK text).
-                    return []
                 logger.warning(
                     "MCP tools/list denied by authentication",
                     extra={
@@ -1756,16 +1813,7 @@ class McpServer:
                         "auth_type": identity.auth_type,
                     },
                 )
-            out: list[Tool] = []
-            for t in self._list_tools_impl(identity=identity, advertised=True):
-                out.append(
-                    Tool(
-                        name=t["name"],
-                        description=t["description"],
-                        inputSchema=t["input_schema"],
-                    )
-                )
-            return out
+            return self._advertised_tool_list(identity)
 
         # Validation is done here instead, so the error names the offending path;
         # the SDK's own reporter drops it (see format_tool_validation_error).
