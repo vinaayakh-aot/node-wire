@@ -16,7 +16,7 @@
         <link rel="prev" href="../connectors/">
       
       
-        <link rel="next" href="../connectors-build/">
+        <link rel="next" href="../exposure/">
       
       
         
@@ -1169,6 +1169,17 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#postgres" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        postgres
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#stripe" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1213,6 +1224,17 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#n8n" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        n8n
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#fhir_epic-and-fhir_cerner" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1243,6 +1265,34 @@
   
 </nav>
       
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../exposure/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Action Exposure
+  
+
+    
+  </span>
+  
+  
+
+      </a>
     </li>
   
 
@@ -2739,6 +2789,17 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#postgres" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        postgres
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#stripe" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2776,6 +2837,17 @@
     <span class="md-ellipsis">
       
         slack
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#n8n" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        n8n
       
     </span>
   </a>
@@ -3013,8 +3085,14 @@ Per-tenant secrets follow the <a href="../architecture/tenancy/#tenant-secrets">
 </tr>
 <tr>
 <td><a href="#smtp"><code>smtp</code></a></td>
-<td><code>send_email</code></td>
+<td><code>send_email</code>, <code>send_bulk</code>, <code>send_raw</code>, <code>check_connection</code>, <code>get_server_capabilities</code>, <code>get_tls_info</code>, <code>ping</code>, <code>verify_address</code>, <code>expand_list</code>, <code>get_help</code>, <code>validate_address_syntax</code> (11 actions)</td>
 <td><code>static_credentials</code></td>
+<td>—</td>
+</tr>
+<tr>
+<td><a href="#postgres"><code>postgres</code></a></td>
+<td>55 actions: server and session, schema discovery, read, write, DDL</td>
+<td><code>none</code> (credentials via secrets)</td>
 <td>—</td>
 </tr>
 <tr>
@@ -3025,13 +3103,19 @@ Per-tenant secrets follow the <a href="../architecture/tenancy/#tenant-secrets">
 </tr>
 <tr>
 <td><a href="#salesforce"><code>salesforce</code></a></td>
+<td>150 actions: leads and contacts, plus the REST API v68.0 (records, metadata, query, search, composite, process, knowledge, consent and more) and Bulk API 2.0</td>
+<td><code>oauth2</code> (<code>refresh_token</code>)</td>
+<td><a href="../salesforce_connector/">Salesforce</a></td>
+</tr>
+<tr>
+<td><a href="#salesforce"><code>salesforce</code></a></td>
 <td><code>create_lead</code>, <code>read_lead</code>, <code>update_lead</code>, <code>delete_lead</code>, <code>create_contact</code>, <code>read_contact</code>, <code>update_contact</code>, <code>delete_contact</code></td>
 <td><code>oauth2</code> (<code>refresh_token</code>)</td>
 <td><a href="../salesforce_connector/">Salesforce</a></td>
 </tr>
 <tr>
 <td><a href="#google_drive"><code>google_drive</code></a></td>
-<td><code>files.list</code>, <code>files.get</code>, <code>files.create</code>, <code>files.upload</code>, <code>files.update</code>, <code>files.delete</code>, <code>permissions.create</code></td>
+<td>49 Drive v3 actions (48 generated, plus <code>drive_files_upload</code>) (<code>drive_files_list</code>, <code>drive_files_get</code>, <code>drive_files_create</code>, <code>drive_files_update</code>, <code>drive_files_delete</code>, <code>drive_permissions_create</code>, comments, revisions, shared drives and more); upload up to 5 MB, no download</td>
 <td><code>service_account</code> (or <code>upstream_bearer</code>)</td>
 <td><a href="../google_drive_connector/">Google Drive</a></td>
 </tr>
@@ -3040,6 +3124,12 @@ Per-tenant secrets follow the <a href="../architecture/tenancy/#tenant-secrets">
 <td><code>post_message</code>, <code>send_direct_message</code>, <code>upload_file</code></td>
 <td><code>static_token</code></td>
 <td><a href="../slack_connector/">Slack</a></td>
+</tr>
+<tr>
+<td><a href="#n8n"><code>n8n</code></a></td>
+<td>173 actions: every n8n 2.47.7 public API operation except 3 deprecated ones (workflows, executions, tags, variables, credentials, folders, data tables, evaluations, projects, roles, users, audit, insights, community packages, source control, instance settings, policies, promotions, n8n packages), plus <code>trigger_workflow</code></td>
+<td><code>static_token</code> (<code>X-N8N-API-KEY</code>)</td>
+<td>—</td>
 </tr>
 <tr>
 <td><a href="#fhir_epic-and-fhir_cerner"><code>fhir_epic</code></a></td>
@@ -3066,24 +3156,53 @@ Per-tenant secrets follow the <a href="../architecture/tenancy/#tenant-secrets">
 <h3 id="smtp"><code>smtp</code><a class="headerlink" href="#smtp" title="Anchor link to this section">&para;</a></h3>
 <ul>
 <li><strong>Package:</strong> <code>node-wire-smtp</code>, <code>src/node_wire_smtp/</code>. MCP image <code>nw-smtp</code>.</li>
-<li><strong>Secrets / settings:</strong> <code>SMTP_HOST</code>, <code>SMTP_PORT</code>, <code>SMTP_USE_TLS</code>, <code>SMTP_USERNAME</code>, <code>SMTP_PASSWORD</code>, <code>FROM_EMAIL</code>.</li>
-<li><strong>Egress:</strong> the payload carries only <code>to</code>, <code>subject</code>, <code>body</code> and an optional <code>from_email</code>. Relay
-  settings are server-side only, so credentials never go to a caller-chosen host. Set
-  <code>NW_SMTP_ALLOWED_HOSTS</code> in production. <code>subject</code> may not contain newlines or control characters.</li>
+<li><strong>Secrets / settings:</strong> <code>SMTP_HOST</code>, <code>SMTP_PORT</code>, <code>SMTP_USE_TLS</code>, <code>SMTP_USERNAME</code>, <code>SMTP_PASSWORD</code>, <code>FROM_EMAIL</code>.
+  <code>host</code>, <code>port</code> and <code>use_tls</code> can also be set in <code>connectors.yaml</code>; the environment wins.</li>
+<li><strong>Actions:</strong> <code>send_email</code> (plus optional <code>cc</code>, <code>bcc</code>, <code>reply_to</code>, <code>html_body</code>, base64 <code>attachments</code>, extra <code>headers</code>,
+  <code>priority</code>, <code>dsn_notify</code>, <code>dsn_return</code>; returns the <code>message_id</code>), <code>send_bulk</code> (up to 100 messages over one
+  connection, one result each), <code>send_raw</code> (a finished RFC 5322 message to given envelope recipients; its <code>From</code> header must equal <code>from_email</code>, it may not carry <code>Bcc</code>, <code>Received</code> or <code>Return-Path</code>, and it is limited to 10 MB),
+  <code>check_connection</code>, <code>get_server_capabilities</code>, <code>get_tls_info</code>, <code>ping</code>, <code>verify_address</code> (VRFY), <code>expand_list</code> (EXPN),
+  <code>get_help</code> (HELP) and <code>validate_address_syntax</code> (offline, no server call). Many servers disable VRFY, EXPN and
+  HELP and answer 502 (an <code>SMTP_ERROR</code>). <code>from_email</code> is required unless <code>FROM_EMAIL</code> or <code>SMTP_USERNAME</code> is set.</li>
+<li><strong>Egress:</strong> relay settings are server-side only and no action accepts them, so credentials never go to a
+  caller-chosen host. Set <code>NW_SMTP_ALLOWED_HOSTS</code> in production. <code>subject</code> and header values may not contain
+  newlines or control characters.</li>
+</ul>
+<h3 id="postgres"><code>postgres</code><a class="headerlink" href="#postgres" title="Anchor link to this section">&para;</a></h3>
+<ul>
+<li><strong>Package:</strong> <code>node-wire-postgres</code>, <code>src/node_wire_postgres/</code>. Driver: psycopg 3 with <code>psycopg_pool</code>.</li>
+<li><strong>Versions:</strong> PostgreSQL 11 or later (tested on 16; <code>reindex</code> with <code>concurrently</code> needs 12; 17 and 18 expected to work but not tested; older than 11 unsupported). psycopg <code>&gt;=3.2,&lt;4</code>, Python 3.11+.</li>
+<li><strong>Secrets / settings:</strong> secrets <code>POSTGRES_USERNAME</code>, <code>POSTGRES_PASSWORD</code>. Settings <code>host</code>, <code>port</code>, <code>database</code>,
+  <code>sslmode</code> in <code>connectors.yaml</code> or <code>POSTGRES_HOST</code>, <code>POSTGRES_PORT</code>, <code>POSTGRES_DATABASE</code>, <code>POSTGRES_SSLMODE</code>.
+  They are server-side only: the payload never names the server.</li>
+<li><strong>Modes:</strong> <code>mode</code> (<code>NW_POSTGRES_MODE</code>) is <code>read_only</code>, <code>read_write</code> or <code>admin</code> (default <code>read_only</code>). Each action
+  needs a minimum mode. Read actions always run in <code>SET TRANSACTION READ ONLY</code>, so the database enforces it.</li>
+<li><strong>Limits:</strong> <code>statement_timeout_ms</code> (30000), <code>max_rows</code> (1000), <code>pool_max</code> (5), <code>allowed_schemas</code>, <code>allowed_tables</code>
+  (<code>schema.table</code>). Raw SQL takes one statement with bound parameters. The allowlists cover the structured actions;
+  give the database role only the privileges it needs, because that role is the real boundary.</li>
+<li><strong>Actions:</strong> see <code>src/node_wire_postgres/README.md</code>. Expose a subset with the action-expose function.</li>
 </ul>
 <h3 id="stripe"><code>stripe</code><a class="headerlink" href="#stripe" title="Anchor link to this section">&para;</a></h3>
 <ul>
 <li><strong>Package:</strong> <code>node-wire-stripe</code>, <code>src/node_wire_stripe/</code>. MCP image <code>nw-stripe</code>.</li>
-<li><strong>Secrets / settings:</strong> <code>STRIPE_API_KEY</code>, sent raw in <code>Authorization</code> (<code>prefix: ""</code>).</li>
-<li><strong>Errors:</strong> <code>src/node_wire_stripe/logic.py</code> is the worked <code>error_map</code> example
+<li><strong>Secrets / settings:</strong> <code>STRIPE_BASIC_AUTH</code> (the Stripe secret key followed by a colon, <code>sk_test_...:</code>), sent as HTTP Basic in <code>Authorization</code> (<code>prefix: Basic</code>, <code>encoding: base64</code>).</li>
+<li><strong>Errors:</strong> the connector is generated, so it uses the shared REST error map: 401 is <code>HTTP_AUTH_ERROR</code> (auth), 429 is
+  <code>HTTP_RATE_LIMITED</code> and 502, 503 and 504 on reads and deletes are <code>HTTP_UNAVAILABLE</code> (both retryable), and any other
+  status, including a declined card (402), is <code>HTTP_STATUS_ERROR</code> (business)
   (<a href="../connectors-build/#optional-error_map-for-errormapper">Build a connector</a>).</li>
+<li><strong>Key format:</strong> <code>STRIPE_BASIC_AUTH</code> must be <code>sk_test_…:</code>, <code>sk_live_…:</code> or an <code>rk_</code> restricted key, each followed by the colon. A tenant
+  secret in any other form (no colon, or already base64) is refused when stored.</li>
 </ul>
 <h3 id="salesforce"><code>salesforce</code><a class="headerlink" href="#salesforce" title="Anchor link to this section">&para;</a></h3>
 <ul>
 <li><strong>Package:</strong> <code>node-wire-salesforce</code>, <code>src/node_wire_salesforce/</code>. MCP image <code>nw-salesforce</code>.</li>
 <li><strong>Secrets / settings:</strong> <code>SALESFORCE_INSTANCE_URL</code>, <code>SALESFORCE_TOKEN_URL</code>, <code>SALESFORCE_CLIENT_ID</code>,
-  <code>SALESFORCE_CLIENT_SECRET</code>, <code>SALESFORCE_REFRESH_TOKEN</code>.</li>
-<li><strong>Guide:</strong> <a href="../salesforce_connector/">Salesforce</a> covers configuration and examples.</li>
+  <code>SALESFORCE_CLIENT_SECRET</code>, <code>SALESFORCE_REFRESH_TOKEN</code>. <code>api_version</code> (default <code>v68.0</code>) can be set in <code>connectors.yaml</code>.</li>
+<li><strong>Actions:</strong> the 8 lead and contact actions, plus 142 for the REST API and Bulk API 2.0, listed by group in the guide.
+  The instance URL and token are server-side only; no action accepts them. The shipped config has it disabled and on REST only. Use an exposure profile
+  (<code>expose/salesforce/</code>: <code>salesforce-readonly</code>, <code>salesforce-records</code>, <code>salesforce-leads-contacts</code>, <code>salesforce-bulk</code>) to limit what a
+  deployment can do (it includes password resets and bulk deletes).</li>
+<li><strong>Guide:</strong> <a href="../salesforce_connector/">Salesforce</a> covers configuration, the action list and the error codes.</li>
 </ul>
 <h3 id="google_drive"><code>google_drive</code><a class="headerlink" href="#google_drive" title="Anchor link to this section">&para;</a></h3>
 <ul>
@@ -3091,7 +3210,8 @@ Per-tenant secrets follow the <a href="../architecture/tenancy/#tenant-secrets">
 <li><strong>Secrets / settings:</strong> <code>GOOGLE_DRIVE_SA_JSON</code> (JSON contents, or an absolute path locally), <code>GOOGLE_DRIVE_FOLDER_ID</code>.</li>
 <li><strong>Per-user access:</strong> <code>upstream_bearer</code> relays each caller's own Google token
   (<a href="../google_drive_connector/#upstream_bearer">Google Drive — upstream bearer</a>).</li>
-<li><strong>Guide:</strong> <a href="../google_drive_connector/">Google Drive</a> covers service-account setup and the error codes.</li>
+<li><strong>Not supported:</strong> file-content upload, download and update. The connector calls only the <code>/drive/v3</code> address, so <code>drive_files_create</code> and <code>drive_files_update</code> work on metadata, and <code>drive_files_get</code> cannot return content.</li>
+<li><strong>Guide:</strong> <a href="../google_drive_connector/">Google Drive</a> covers service-account setup, the action list and the error codes.</li>
 </ul>
 <h3 id="slack"><code>slack</code><a class="headerlink" href="#slack" title="Anchor link to this section">&para;</a></h3>
 <ul>
@@ -3099,6 +3219,17 @@ Per-tenant secrets follow the <a href="../architecture/tenancy/#tenant-secrets">
 <li><strong>Secrets / settings:</strong> <code>SLACK_BOT_TOKEN</code>. File uploads from disk must sit under
   <code>NW_SLACK_ATTACHMENTS_DIR</code> (default <code>/slack_attachments</code>).</li>
 <li><strong>Guide:</strong> <a href="../slack_connector/">Slack</a> covers bot setup, channel resolution and the error codes.</li>
+</ul>
+<h3 id="n8n"><code>n8n</code><a class="headerlink" href="#n8n" title="Anchor link to this section">&para;</a></h3>
+<ul>
+<li><strong>Package:</strong> <code>node-wire-n8n</code>, <code>src/node_wire_n8n/</code>. Versions: n8n public API v1 (spec 1.1.1), written against n8n 2.47.7.</li>
+<li><strong>Secrets / settings:</strong> secret <code>N8N_API_KEY</code>, sent as <code>X-N8N-API-KEY</code> (<code>auth: static_token</code>, <code>prefix: ""</code>). <code>instance_url</code> is the
+  instance root and is set in <code>connectors.yaml</code> only: no action accepts it, so the key can only go to the configured host.</li>
+<li><strong>Egress:</strong> there is no private-address guard, so an n8n on localhost or a private network works. Use a scoped API key
+  (n8n 2.14+) and an exposure profile to limit what the connector can do. It is disabled and REST-only in the shipped config;
+  profiles <code>n8n-readonly</code> and <code>n8n-workflows</code> are in <code>expose/n8n/</code>.</li>
+<li><strong>Actions:</strong> see <code>src/node_wire_n8n/README.md</code>. <code>trigger_workflow</code> calls a workflow's webhook without the API key, and only
+  on the configured n8n host.</li>
 </ul>
 <h3 id="fhir_epic-and-fhir_cerner"><code>fhir_epic</code> and <code>fhir_cerner</code><a class="headerlink" href="#fhir_epic-and-fhir_cerner" title="Anchor link to this section">&para;</a></h3>
 <ul>
@@ -3226,13 +3357,13 @@ Per-tenant secrets follow the <a href="../architecture/tenancy/#tenant-secrets">
         
         
           
-          <a href="../connectors-build/" class="md-footer__link md-footer__link--next" aria-label="Next: Build a Connector">
+          <a href="../exposure/" class="md-footer__link md-footer__link--next" aria-label="Next: Action Exposure">
             <div class="md-footer__title">
               <span class="md-footer__direction">
                 Next
               </span>
               <div class="md-ellipsis">
-                Build a Connector
+                Action Exposure
               </div>
             </div>
             <div class="md-footer__button md-icon">

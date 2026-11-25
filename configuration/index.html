@@ -1272,6 +1272,34 @@
   
   
     <li class="md-nav__item">
+      <a href="../exposure/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Action Exposure
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../connectors-build/" class="md-nav__link">
         
   
@@ -2976,7 +3004,12 @@ SPDX-License-Identifier: Apache-2.0
 <tr>
 <td><strong>SMTP</strong></td>
 <td><code>SMTP_HOST</code>, <code>SMTP_PORT</code>, <code>SMTP_USE_TLS</code>, <code>SMTP_USERNAME</code>, <code>SMTP_PASSWORD</code>, <code>FROM_EMAIL</code></td>
-<td>Sending emails; relay pinned to env (not request payload)</td>
+<td>Sending emails; relay pinned on the server (env or <code>connectors.yaml</code>, not request payload)</td>
+</tr>
+<tr>
+<td><strong>Postgres</strong></td>
+<td><code>POSTGRES_HOST</code>, <code>POSTGRES_PORT</code>, <code>POSTGRES_DATABASE</code>, <code>POSTGRES_SSLMODE</code>, <code>POSTGRES_USERNAME</code>, <code>POSTGRES_PASSWORD</code>; optional <code>NW_POSTGRES_MODE</code>, <code>NW_POSTGRES_STATEMENT_TIMEOUT_MS</code>, <code>NW_POSTGRES_MAX_ROWS</code>, <code>NW_POSTGRES_POOL_MAX</code>, <code>NW_POSTGRES_ALLOWED_SCHEMAS</code>, <code>NW_POSTGRES_ALLOWED_TABLES</code></td>
+<td>Postgres connector; connection target is server-side only</td>
 </tr>
 <tr>
 <td><strong>Slack</strong></td>
@@ -2984,8 +3017,13 @@ SPDX-License-Identifier: Apache-2.0
 <td>Sending Slack messages</td>
 </tr>
 <tr>
+<td><strong>n8n</strong></td>
+<td><code>N8N_API_KEY</code> (<code>instance_url</code> is set in <code>connectors.yaml</code>)</td>
+<td>n8n public API and workflow webhooks</td>
+</tr>
+<tr>
 <td><strong>Stripe</strong></td>
-<td><code>STRIPE_API_KEY</code></td>
+<td><code>STRIPE_BASIC_AUTH</code></td>
 <td>Stripe payments</td>
 </tr>
 <tr>
@@ -3070,6 +3108,21 @@ SPDX-License-Identifier: Apache-2.0
 <td><code>NW_MCP_TOOL_MODE</code></td>
 <td><code>list</code> — every tool in <code>tools/list</code>; <code>search</code> — list only <code>nw_search_tools</code> + <code>nw_call_tool</code> and hand out tool schemas on demand (for large connectors). Unknown values fail at startup</td>
 <td><code>list</code></td>
+</tr>
+<tr>
+<td><code>NW_EXPOSE_PROFILE</code></td>
+<td>Serve only the actions in <code>expose/&lt;connector_id&gt;/&lt;profile&gt;.yaml</code> on every surface; unset exposes everything. See <a href="../exposure/">Action exposure</a></td>
+<td><em>(unset)</em></td>
+</tr>
+<tr>
+<td><code>NW_EXPOSE_DIR</code></td>
+<td>Folder holding the exposure profiles</td>
+<td><code>expose/</code> beside <code>config/</code></td>
+</tr>
+<tr>
+<td><code>NW_EXPOSE_STRICT_VERSION</code></td>
+<td><code>true</code> refuses to start when a profile was written for another connector version (otherwise a warning)</td>
+<td><code>false</code></td>
 </tr>
 <tr>
 <td><code>NW_MCP_SCOPE_POLICY_DEFAULT</code></td>
